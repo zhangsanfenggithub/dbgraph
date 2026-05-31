@@ -359,6 +359,44 @@ code {
   padding: 28px;
 }
 
+.language-switch {
+  display: inline-flex;
+  gap: 8px;
+  margin: 18px 0 8px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.language-switch a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.language-switch a:hover {
+  background: var(--surface);
+  text-decoration: none;
+}
+
+.lang-panel {
+  display: none;
+}
+
+.lang-panel:target {
+  display: block;
+}
+
+.language-content:not(:has(.lang-panel:target)) #en {
+  display: block;
+}
+
 .docs-body p,
 .docs-body li {
   color: var(--muted);
