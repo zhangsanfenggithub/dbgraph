@@ -187,9 +187,11 @@ dependencies = [
  "dbgraph-core",
  "dbgraph-graph",
  "dbgraph-installer",
+ "dbgraph-mcp",
  "dbgraph-provider",
  "dbgraph-sql",
  "dbgraph-storage",
+ "rusqlite",
  "serde",
  "serde_json",
  "tracing",
@@ -213,6 +215,8 @@ version = "0.1.0"
 dependencies = [
  "dbgraph-core",
  "dbgraph-storage",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -222,6 +226,14 @@ version = "0.1.0"
 [[package]]
 name = "dbgraph-mcp"
 version = "0.1.0"
+dependencies = [
+ "dbgraph-core",
+ "dbgraph-graph",
+ "dbgraph-sql",
+ "dbgraph-storage",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "dbgraph-provider"
@@ -229,6 +241,7 @@ version = "0.1.0"
 dependencies = [
  "dbgraph-core",
  "postgres",
+ "rusqlite",
  "serde",
  "serde_json",
  "url",

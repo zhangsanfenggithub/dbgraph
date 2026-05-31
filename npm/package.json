@@ -1,0 +1,15 @@
+{
+  "name": "@dbgraph/cli",
+  "version": "0.1.0",
+  "description": "Thin npm/npx wrapper for the DbGraph Rust CLI",
+  "license": "MIT",
+  "bin": {
+    "dbgraph": "bin/dbgraph.js"
+  },
+  "files": [
+    "bin/dbgraph.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,9 +1,15 @@
 //! Core types, errors, logging, and shared metadata for `DbGraph`.
 
+pub mod benchmark;
 pub mod config;
+pub mod diff;
 pub mod model;
+pub mod profiling;
 pub mod project;
+pub mod sampling;
+pub mod security;
 pub mod snapshot;
+pub mod sync;
 
 use std::path::PathBuf;
 use std::{env, io};

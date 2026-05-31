@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::profiling::{ProfilingMode, ProfilingOptions};
 use crate::project::ProjectContext;
 use crate::{DbGraphError, Result};
 
@@ -102,7 +103,16 @@ impl DatabaseConfig {
 pub struct SnapshotConfig {
     /// Whether to use pretty JSON when writing snapshots.
     pub pretty_json: bool,
+    /// Profiling mode. Defaults to schema-only.
+    #[serde(default)]
+    pub profiling_mode: ProfilingMode,
+    /// Maximum sampled rows per table when sample profiling is enabled.
+    #[serde(default = "default_max_rows_per_table")]
+    pub max_rows_per_table: u32,
     /// Whether to collect row samples. This must stay opt-in.
+    ///
+    /// This legacy flag remains for old configs; new configs should use
+    /// `profilingMode: "sample"`.
     pub sample_rows: bool,
 }
 
@@ -110,9 +120,15 @@ impl Default for SnapshotConfig {
     fn default() -> Self {
         Self {
             pretty_json: true,
+            profiling_mode: ProfilingMode::Schema,
+            max_rows_per_table: default_max_rows_per_table(),
             sample_rows: false,
         }
     }
+}
+
+fn default_max_rows_per_table() -> u32 {
+    20
 }
 
 /// Security defaults for profiling and sample storage.
@@ -121,15 +137,23 @@ impl Default for SnapshotConfig {
 pub struct SecurityConfig {
     /// Whether raw business row data may be stored. Defaults to false.
     pub store_raw_data: bool,
+    /// Whether raw sample values may be stored. Defaults to false.
+    #[serde(default)]
+    pub store_raw_samples: bool,
     /// Whether PII-like sample values should be masked.
     pub mask_pii: bool,
+    /// User-defined sensitive column terms.
+    #[serde(default)]
+    pub custom_sensitive_terms: Vec<String>,
 }
 
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             store_raw_data: false,
+            store_raw_samples: false,
             mask_pii: true,
+            custom_sensitive_terms: Vec::new(),
         }
     }
 }
@@ -285,6 +309,20 @@ impl DbGraphConfig {
             ));
         }
 
+        if self.snapshot.sample_rows && self.snapshot.profiling_mode != ProfilingMode::Sample {
+            return Err(DbGraphError::invalid_config(
+                "snapshot.sampleRows requires snapshot.profilingMode to be sample",
+            ));
+        }
+
+        ProfilingOptions {
+            mode: self.snapshot.profiling_mode,
+            max_rows_per_table: self.snapshot.max_rows_per_table,
+            mask_pii: self.security.mask_pii,
+            store_raw_samples: self.security.store_raw_samples,
+        }
+        .validate()?;
+
         if self.mcp.max_response_chars == 0 {
             return Err(DbGraphError::invalid_config(
                 "mcp.maxResponseChars must be greater than zero",
@@ -315,7 +353,10 @@ mod tests {
         );
         assert_eq!(config.database.connection_string, None);
         assert!(!config.snapshot.sample_rows);
+        assert_eq!(config.snapshot.profiling_mode, ProfilingMode::Schema);
+        assert_eq!(config.snapshot.max_rows_per_table, 20);
         assert!(!config.security.store_raw_data);
+        assert!(!config.security.store_raw_samples);
         assert!(config.security.mask_pii);
     }
 
@@ -337,8 +378,8 @@ mod tests {
             r#"{
               "version": 1,
               "database": { "provider": "oracle", "connectionEnv": "DATABASE_URL" },
-              "snapshot": { "prettyJson": true, "sampleRows": false },
-              "security": { "storeRawData": false, "maskPii": true },
+              "snapshot": { "prettyJson": true, "profilingMode": "schema", "maxRowsPerTable": 20, "sampleRows": false },
+              "security": { "storeRawData": false, "storeRawSamples": false, "maskPii": true },
               "mcp": { "enabled": true, "maxResponseChars": 15000 }
             }"#,
         )
@@ -402,6 +443,7 @@ mod tests {
         let config = DbGraphConfig {
             snapshot: SnapshotConfig {
                 sample_rows: true,
+                profiling_mode: ProfilingMode::Sample,
                 ..SnapshotConfig::default()
             },
             security: SecurityConfig {
@@ -416,6 +458,23 @@ mod tests {
             .expect_err("unsafe data settings should fail");
 
         assert!(err.to_string().contains("storeRawData"));
+    }
+
+    #[test]
+    fn rejects_legacy_sampling_without_sample_profile_mode() {
+        let config = DbGraphConfig {
+            snapshot: SnapshotConfig {
+                sample_rows: true,
+                ..SnapshotConfig::default()
+            },
+            ..DbGraphConfig::default()
+        };
+
+        let err = config
+            .validate()
+            .expect_err("sample rows should require sample profile mode");
+
+        assert!(err.to_string().contains("profilingMode"));
     }
 
     struct TempProject {

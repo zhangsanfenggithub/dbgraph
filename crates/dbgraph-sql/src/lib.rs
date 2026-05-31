@@ -416,6 +416,83 @@ pub fn sql_artifact_to_graph(
     })
 }
 
+/// Resolves SQL artifact edge targets against known snapshot objects.
+pub fn resolve_sql_edge_targets(snapshot: &dbgraph_core::model::DbSnapshot, edges: &mut [DbEdge]) {
+    for edge in edges {
+        if let Some(target) = resolve_reference(snapshot, &edge.to_object_id) {
+            edge.to_object_id = target.id.clone();
+            edge.confidence = edge.confidence.max(0.9);
+            edge.metadata
+                .insert("unresolved".to_owned(), serde_json::Value::Bool(false));
+            edge.metadata.insert(
+                "resolvedName".to_owned(),
+                serde_json::Value::String(target.full_name.clone()),
+            );
+        }
+    }
+}
+
+fn resolve_reference<'a>(
+    snapshot: &'a dbgraph_core::model::DbSnapshot,
+    reference: &str,
+) -> Option<&'a DbObject> {
+    let normalized = reference.trim_matches('"').trim_matches('`');
+    snapshot
+        .objects
+        .iter()
+        .find(|object| object.id == normalized || object.full_name == normalized)
+        .or_else(|| resolve_column_reference(snapshot, normalized))
+        .or_else(|| resolve_table_reference(snapshot, normalized))
+}
+
+fn resolve_column_reference<'a>(
+    snapshot: &'a dbgraph_core::model::DbSnapshot,
+    reference: &str,
+) -> Option<&'a DbObject> {
+    let parts = reference.split('.').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table, column] => snapshot.objects.iter().find(|object| {
+            object.kind == DbObjectKind::Column
+                && object.table_name.as_deref() == Some(*table)
+                && object
+                    .column_name
+                    .as_deref()
+                    .unwrap_or(object.name.as_str())
+                    == *column
+        }),
+        [schema, table, column] => snapshot.objects.iter().find(|object| {
+            object.kind == DbObjectKind::Column
+                && object.schema_name.as_deref() == Some(*schema)
+                && object.table_name.as_deref() == Some(*table)
+                && object
+                    .column_name
+                    .as_deref()
+                    .unwrap_or(object.name.as_str())
+                    == *column
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_table_reference<'a>(
+    snapshot: &'a dbgraph_core::model::DbSnapshot,
+    reference: &str,
+) -> Option<&'a DbObject> {
+    let parts = reference.split('.').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [table] => snapshot.objects.iter().find(|object| {
+            matches!(object.kind, DbObjectKind::Table | DbObjectKind::View)
+                && object.table_name.as_deref().unwrap_or(object.name.as_str()) == *table
+        }),
+        [schema, table] => snapshot.objects.iter().find(|object| {
+            matches!(object.kind, DbObjectKind::Table | DbObjectKind::View)
+                && object.schema_name.as_deref() == Some(*schema)
+                && object.table_name.as_deref().unwrap_or(object.name.as_str()) == *table
+        }),
+        _ => None,
+    }
+}
+
 fn parse_statements_for_analysis(sql: &str, dialect: SqlDialect) -> Result<Vec<Statement>> {
     let parsed = match dialect {
         SqlDialect::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, sql),
@@ -838,7 +915,7 @@ fn json_error(source: serde_json::Error) -> DbGraphError {
 mod tests {
     use std::fs;
 
-    use dbgraph_core::model::{DbEdgeKind, DbObjectKind};
+    use dbgraph_core::model::{ColumnMetadata, DbEdgeKind, DbObject, DbObjectKind, DbSnapshot};
     use tempfile::TempDir;
 
     use crate::{
@@ -994,6 +1071,50 @@ mod tests {
             .any(|edge| edge.kind == DbEdgeKind::ReadsFrom));
         assert_eq!(graph.artifact.snapshot_id, "snapshot:1");
         assert_eq!(graph.artifact.fingerprint, parsed.fingerprint);
+    }
+
+    #[test]
+    fn sql_edges_resolve_table_and_column_references_to_snapshot_object_ids() {
+        let mut snapshot = DbSnapshot::new("s1", "postgres", "app", 1);
+        let mut orders = DbObject::new("table:orders", DbObjectKind::Table, "public.orders");
+        orders.schema_name = Some("public".to_owned());
+        orders.table_name = Some("orders".to_owned());
+        let mut status = DbObject::new(
+            "column:orders.status",
+            DbObjectKind::Column,
+            "public.orders.status",
+        );
+        status.schema_name = Some("public".to_owned());
+        status.table_name = Some("orders".to_owned());
+        status.column_name = Some("status".to_owned());
+        status.column = Some(ColumnMetadata {
+            data_type: Some("text".to_owned()),
+            data_type_family: Some("text".to_owned()),
+            nullable: Some(false),
+            default: None,
+            comment: None,
+        });
+        snapshot.objects = vec![orders, status];
+        let parser = SqlParser::new(SqlDialect::Postgres);
+        let parsed = parser
+            .parse("select * from orders o where o.status = 'paid'")
+            .unwrap();
+        let analysis = analyze_sql(&parsed.raw_sql, SqlDialect::Postgres).unwrap();
+        let mut graph =
+            sql_artifact_to_graph("snapshot:1", "sql/orders.sql", &parsed, &analysis).unwrap();
+
+        crate::resolve_sql_edge_targets(&snapshot, &mut graph.edges);
+
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.kind == DbEdgeKind::ReadsFrom && edge.to_object_id == "table:orders"));
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.kind == DbEdgeKind::FiltersBy
+                && edge.to_object_id == "column:orders.status"
+                && edge.metadata.get("unresolved") == Some(&serde_json::Value::Bool(false))));
     }
 
     fn write(path: impl AsRef<std::path::Path>, content: &str) {

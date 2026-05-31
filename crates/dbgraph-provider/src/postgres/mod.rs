@@ -98,6 +98,9 @@ impl ProviderRegistry {
     pub fn get(&self, id: &str) -> Option<Box<dyn DatabaseProvider>> {
         match id {
             "postgres" => Some(Box::new(PostgresProvider)),
+            "mysql" => Some(Box::new(crate::MysqlProvider)),
+            "sql-server" => Some(Box::new(crate::SqlServerProvider)),
+            "sqlite" => Some(Box::new(crate::SqliteProvider)),
             _ => None,
         }
     }
@@ -345,6 +348,7 @@ pub struct RawTableStatistics {
     pub schema: String,
     pub table: String,
     pub row_estimate: Option<i64>,
+    pub row_count_kind: Option<String>,
     pub size_bytes: Option<i64>,
     pub source: String,
 }
@@ -564,6 +568,11 @@ pub fn canonicalize_raw_snapshot(raw: RawSchemaSnapshot) -> DbSnapshot {
         object
             .metadata
             .insert("predicate".to_owned(), json!(index.predicate));
+        if index.expression.is_some() && index.columns.is_empty() {
+            object
+                .metadata
+                .insert("expressionIndex".to_owned(), json!(true));
+        }
         snapshot.edges.push(DbEdge::explicit(
             format!(
                 "has_index:{}->{index_id}",
@@ -721,7 +730,10 @@ pub fn canonicalize_raw_snapshot(raw: RawSchemaSnapshot) -> DbSnapshot {
                 TableProfile {
                     object_id: table_object_id(&stats.schema, &stats.table),
                     row_estimate: stats.row_estimate,
-                    row_count_kind: stats.row_estimate.map(|_| "estimate".to_owned()),
+                    row_count_kind: stats
+                        .row_count_kind
+                        .clone()
+                        .or_else(|| stats.row_estimate.map(|_| "estimate".to_owned())),
                     size_bytes: stats.size_bytes,
                     profile: metadata([("source", json!(stats.source))]),
                 },
@@ -1092,6 +1104,7 @@ fn extract_raw_schema(
         schema: row.get(0),
         table: row.get(1),
         row_estimate: row.get(2),
+        row_count_kind: Some("estimate".to_owned()),
         size_bytes: row.get(3),
         source: "pg_class.reltuples".to_owned(),
     }).collect();
@@ -1636,6 +1649,7 @@ mod tests {
                     schema: "public".to_owned(),
                     table: "orders".to_owned(),
                     row_estimate: Some(42),
+                    row_count_kind: None,
                     size_bytes: Some(4096),
                     source: "pg_class.reltuples".to_owned(),
                 }],

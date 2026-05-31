@@ -1,0 +1,32 @@
+name: postgres-integration
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  postgres-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 55432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teashop
+        options: >-
+          --health-cmd "pg_isready -U postgres -d teashop"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:55432/teashop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: psql "$DATABASE_URL" -f examples/postgres-teashop/schema.sql
+      - shell: pwsh
+        run: ./scripts/integration/postgres-smoke.ps1

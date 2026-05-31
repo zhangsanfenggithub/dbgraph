@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 dbgraph-core = { path = "../dbgraph-core" }
 postgres = "0.19.12"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 url = "2.5.7"

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dbgraph": {
+      "command": "dbgraph",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}

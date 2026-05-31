@@ -8,6 +8,13 @@ use dbgraph_core::model::{
 use dbgraph_core::Result;
 use dbgraph_storage::GraphRepository;
 
+pub mod analysis;
+pub mod context;
+pub mod impact;
+pub mod relations;
+pub mod search;
+pub mod workload;
+
 /// Summary returned after rebuilding a snapshot index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexBuildSummary {

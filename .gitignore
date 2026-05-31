@@ -7,12 +7,31 @@
 # Reference and task-planning material
 /reference-codegraph/
 /dbgraph_task_pack/
+/docs/superpowers/
+/.superpowers/
+/superpowers/
 
 # Editor and OS noise
 .DS_Store
 Thumbs.db
 *.swp
 *.swo
+
+# Generated reports and local run output
+/analysis.md
+/dbgraph-analysis.md
+/teashop-analysis.md
+/reports/
+
+# Node/package artifacts
+/node_modules/
+/npm/node_modules/
+/npm/*.tgz
+/coverage/
+
+# Test and profiling artifacts
+*.profraw
+*.profdata
 
 # Logs and local environment files
 *.log
